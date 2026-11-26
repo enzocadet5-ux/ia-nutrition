@@ -30,6 +30,10 @@ const json = (corps, statut, entetes) =>
 async function lireCorrections(env) {
   try { return JSON.parse((await env.CORRECTIONS.get("liste")) || "[]"); } catch { return []; }
 }
+async function lirePropositions(env) {
+  try { return JSON.parse((await env.CORRECTIONS.get("propositions")) || "[]"); } catch { return []; }
+}
+const texte = (v, n) => String(v || "").replace(/[\u0000-\u001f]/g, " ").slice(0, n).trim();
 function estAdmin(req, env) {
   const t = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
   return !!env.ADMIN_TOKEN && t.length >= 16 && t === env.ADMIN_TOKEN;
@@ -52,7 +56,8 @@ async function scanner(req, env, H) {
   }
   let corps;
   try { corps = await req.json(); } catch { return json({ erreur: "Requête illisible." }, 400, H); }
-  const { image, type, indice } = corps || {};
+  const { image, type, indice, rectif } = corps || {};
+  const rect = rectif && typeof rectif === "object" ? { vrai: texte(rectif.vrai, 300), avant: texte(rectif.avant, 300) } : null;
   if (typeof image !== "string" || !image.length || image.length > MAX_BASE64) return json({ erreur: "Photo manquante ou trop lourde." }, 400, H);
   if (!TYPES_IMAGE.includes(type)) return json({ erreur: "Format de photo non pris en charge." }, 400, H);
   if (!(await quotaJour(env))) return json({ erreur: "Limite de scans du jour atteinte. Réessaie demain." }, 429, H);
@@ -73,13 +78,13 @@ async function scanner(req, env, H) {
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: type, data: image } },
-          { type: "text", text: NutriIA.promptUtilisateur(typeof indice === "string" ? indice : "", corrections) },
+          { type: "text", text: NutriIA.promptUtilisateur(texte(indice, 200), corrections, rect && rect.vrai ? rect : null) },
         ],
       }],
     });
     if (rep.stop_reason === "refusal") return json({ erreur: "L'IA n'a pas pu analyser cette photo." }, 422, H);
-    const texte = rep.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-    const brut = NutriIA.lireJSON(texte);
+    const reponse = rep.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    const brut = NutriIA.lireJSON(reponse);
     if (!brut) return json({ erreur: "Réponse de l'IA illisible. Réessaie avec une photo plus nette." }, 502, H);
     return json({ resultat: brut, modele: rep.model }, 200, H);
   } catch (e) {
@@ -88,6 +93,7 @@ async function scanner(req, env, H) {
     if (e instanceof Anthropic.BadRequestError) return json({ erreur: "Photo refusée par l'IA (format ou taille)." }, 400, H);
     if (e instanceof Anthropic.APIConnectionError) return json({ erreur: "Connexion à l'IA impossible." }, 503, H);
     if (e instanceof Anthropic.APIError) return json({ erreur: "Erreur de l'IA (" + e.status + ")." }, 502, H);
+    console.error("scan", e && e.stack || e);
     return json({ erreur: "Erreur inattendue du relais." }, 500, H);
   }
 }
@@ -114,6 +120,34 @@ export default {
       const liste = [item, ...(await lireCorrections(env))].slice(0, 200);
       await env.CORRECTIONS.put("liste", JSON.stringify(liste));
       return json({ ok: true, total: liste.length }, 200, H);
+    }
+    // Propositions : n'importe quel utilisateur signale une erreur ; l'entraîneur valide.
+    if (url.pathname === "/propositions" && req.method === "POST") {
+      const ip = req.headers.get("CF-Connecting-IP") || "inconnu";
+      if (env.LIMITEUR) { const { success } = await env.LIMITEUR.limit({ key: "p:" + ip }); if (!success) return json({ erreur: "Trop d'envois d'un coup." }, 429, H); }
+      let c; try { c = await req.json(); } catch { return json({ erreur: "Requête illisible." }, 400, H); }
+      const item = { id: crypto.randomUUID(), ts: Date.now(), plat: texte(c.plat, 80), avant: texte(c.avant, 300), apres: texte(c.apres, 300) };
+      if (item.apres.length < 3) return json({ erreur: "Écris ce qu'est vraiment le plat." }, 400, H);
+      const liste = [item, ...(await lirePropositions(env))].slice(0, 300);
+      await env.CORRECTIONS.put("propositions", JSON.stringify(liste));
+      return json({ ok: true }, 200, H);
+    }
+    if (url.pathname === "/propositions" && req.method === "GET") {
+      if (!estAdmin(req, env)) return json({ erreur: "Code entraîneur incorrect." }, 401, H);
+      return json({ propositions: await lirePropositions(env) }, 200, H);
+    }
+    const mp = url.pathname.match(/^\/propositions\/([\w-]{8,})(\/valider)?$/);
+    if (mp && (req.method === "DELETE" || (req.method === "POST" && mp[2]))) {
+      if (!estAdmin(req, env)) return json({ erreur: "Code entraîneur incorrect." }, 401, H);
+      const props = await lirePropositions(env), p = props.find((x) => x.id === mp[1]);
+      await env.CORRECTIONS.put("propositions", JSON.stringify(props.filter((x) => x.id !== mp[1])));
+      if (p && mp[2]) {
+        let c = {}; try { c = await req.json(); } catch {}
+        const corr = { ...p, apres: texte(c.apres, 300) || p.apres, note: texte(c.note, 200), ts: Date.now() };
+        const liste = [corr, ...(await lireCorrections(env))].slice(0, 200);
+        await env.CORRECTIONS.put("liste", JSON.stringify(liste));
+      }
+      return json({ ok: true }, 200, H);
     }
     const m = url.pathname.match(/^\/corrections\/([\w-]{8,})$/);
     if (m && req.method === "DELETE") {

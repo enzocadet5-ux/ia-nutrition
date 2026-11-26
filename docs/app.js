@@ -14,7 +14,7 @@ function ecrire(cle, v) { try { localStorage.setItem("ian_" + cle, JSON.stringif
 let profil = lire("profil", null);
 let repas = lire("repas", []);
 let code = lire("code", "");
-const UI = { vue: profil ? "scan" : "profil", etat: "pret", analyse: null, erreur: "", corrections: null, admin: false, msgEnt: "" };
+const UI = { vue: profil ? "scan" : "profil", etat: "pret", analyse: null, erreur: "", corrections: null, propositions: [], admin: false, msgEnt: "" };
 
 function sauverRepas() {
   repas = repas.filter((r) => Date.now() - r.ts < 30 * 864e5); // 30 jours
@@ -44,27 +44,33 @@ async function scanner(fichier) {
   if (!profil) { aller("profil"); return; }
   let img; try { img = await chargerImage(fichier); } catch { UI.etat = "erreur"; UI.erreur = "Ce fichier n'est pas une image lisible."; rendre(); return; }
   const grande = redimensionner(img, 1280, 0.82), vignette = redimensionner(img, 240, 0.7);
-  UI.etat = "analyse"; UI.vignette = vignette; rendre();
-  if (!RELAIS) { UI.etat = "erreur"; UI.erreur = "Le relais n'est pas encore configuré (fichier config.js)."; rendre(); return; }
+  UI.etat = "analyse"; UI.vignette = vignette; UI.msgAttente = "L'IA analyse ton plat…"; rendre();
+  const indice = (UI.indice || "").slice(0, 200);
   try {
-    const rep = await fetch(RELAIS + "/scan", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: grande.split(",")[1], type: "image/jpeg", indice: ($("#indice")?.value || UI.indice || "").slice(0, 200) }) });
-    const d = await rep.json().catch(() => ({}));
-    if (!rep.ok) throw new Error(d.erreur || "Erreur " + rep.status);
-    const scan = N.normaliserScan(d.resultat);
+    const scan = await envoyerScan(grande, indice, null);
     if (!scan) { UI.etat = "erreur"; UI.erreur = "Je ne vois pas de nourriture sur cette photo. Essaie une photo nette, vue de dessus."; rendre(); return; }
-    ouvrirAnalyse(scan, vignette, d.resultat);
-  } catch (e) { UI.etat = "erreur"; UI.erreur = e.message === "Failed to fetch" ? "Pas de connexion au relais. Vérifie ton réseau." : e.message; rendre(); }
+    ouvrirAnalyse(scan, vignette, { image: grande, indice });
+  } catch (e) { UI.etat = "erreur"; UI.erreur = e.message; rendre(); }
 }
+async function envoyerScan(image, indice, rectif) {
+  if (!RELAIS) throw new Error("Le relais n'est pas encore configuré (fichier config.js).");
+  let rep;
+  try { rep = await fetch(RELAIS + "/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: image.split(",")[1], type: "image/jpeg", indice, rectif }) }); }
+  catch { throw new Error("Pas de connexion au relais. Vérifie ton réseau."); }
+  const d = await rep.json().catch(() => ({}));
+  if (!rep.ok) throw new Error(d.erreur || "Erreur " + rep.status);
+  return N.normaliserScan(d.resultat);
+}
+const resumeScan = (scan) => scan.aliments.map((a) => a.nom + " " + a.grammes + " g (NOVA " + a.nova + (a.additifs.length ? ", " + a.additifs.join(" ") : "") + ")").join(" ; ");
 
-function ouvrirAnalyse(scan, photo, brut, exemple) {
-  UI.analyse = { id: String(Date.now()), ts: Date.now(), scan, photo, creneau: N.creneauSelonHeure(new Date()), brut: brut || null, exemple: !!exemple };
+function ouvrirAnalyse(scan, photo, source, exemple, rectifie) {
+  UI.analyse = { id: String(Date.now()), ts: Date.now(), scan, photo, creneau: N.creneauSelonHeure(new Date()), image: source?.image || null, indice: source?.indice || "", exemple: !!exemple, rectifie: rectifie || "" };
   UI.etat = "resultat"; UI.indice = ""; aller("scan"); window.scrollTo(0, 0);
 }
 
 // ---------- Vues ----------
 function vueScan() {
-  if (UI.etat === "analyse") return `<div class="attente"><img src="${UI.vignette}" alt="Ta photo"><div class="roue" role="status" aria-label="Analyse en cours"></div><b>L'IA analyse ton plat…</b><span class="petit">Aliments, quantités, additifs, transformation</span></div>`;
+  if (UI.etat === "analyse") return `<div class="attente">${UI.vignette ? `<img src="${UI.vignette}" alt="Ta photo">` : ""}<div class="roue" role="status" aria-label="Analyse en cours"></div><b>${esc(UI.msgAttente || "L'IA analyse ton plat…")}</b><span class="petit">Aliments, quantités, additifs, transformation</span></div>`;
   if (UI.etat === "resultat" && UI.analyse) return vueResultat();
   return `<div class="pile">
     ${UI.etat === "erreur" ? `<div class="alerte"><b>Analyse impossible.</b> ${esc(UI.erreur)}</div>` : ""}
@@ -113,13 +119,23 @@ function vueResultat() {
     </tbody></table></div><p class="petit" style="margin:6px 0 0">Corrige les grammes si besoin : tout se recalcule. NOVA 4 = ultra-transformé.</p></div>
     <div class="carte pile"><h3 style="font-size:19px">Avec ce repas, aujourd'hui</h3><p style="margin:0;font-weight:600">${esc(jour.resume)}</p>${barresJour(jour, true)}</div>
     ${A.exemple ? "" : `<button class="plein" data-act="ajouter">Ajouter à ma journée</button>`}
+    ${blocTrompe(A)}
     ${code ? blocCorriger(A) : ""}
     <button class="sec plein" data-act="nouveau">Scanner un autre plat</button>
   </div>`;
 }
 
+function blocTrompe(A) {
+  if (A.rectifie) return `<div class="carte"><b>Analyse corrigée</b> d'après ta réponse : « ${esc(A.rectifie)} ».<div class="petit">${code ? "Ta correction est enregistrée pour entraîner l'IA." : "Merci ! Ta correction a été envoyée à l'entraîneur pour améliorer l'IA."}</div></div>`;
+  if (!A.image) return A.exemple ? "" : "";
+  return `<details class="carte" ${UI.ouvrirTrompe ? "open" : ""}><summary style="font-weight:700;cursor:pointer">L'IA s'est trompée ?</summary><div class="pile" style="margin-top:12px">
+    <div><label for="r-vrai">Qu'est-ce que c'est vraiment ?</label><textarea id="r-vrai" maxlength="300" placeholder="ex. cari de thon maison avec du riz complet, pas du poulet"></textarea></div>
+    <p class="petit" style="margin:0">L'IA va réanalyser ta photo avec ta réponse (c'est un nouveau scan).</p>
+    <button class="plein" data-act="rectifier">Corriger et réanalyser</button><p class="petit" id="r-msg" style="margin:0"></p></div></details>`;
+}
+
 function blocCorriger(A) {
-  const avant = A.scan.aliments.map((a) => a.nom + " " + a.grammes + " g (NOVA " + a.nova + (a.additifs.length ? ", " + a.additifs.join(" ") : "") + ")").join(" ; ");
+  const avant = resumeScan(A.scan);
   return `<details class="carte"><summary style="font-weight:700;cursor:pointer">Entraîner l'IA sur ce plat</summary><div class="pile" style="margin-top:12px">
     <p class="petit" style="margin:0">L'IA avait vu : ${esc(avant)}</p>
     <div><label for="c-apres">La bonne réponse</label><textarea id="c-apres" maxlength="300" placeholder="ex. c'est du cari poulet du RU, portion de riz 250 g, fait maison donc NOVA 3 sans additif"></textarea></div>
@@ -183,6 +199,10 @@ function vueEntrainer() {
     <div class="carte pile"><label for="code">Code entraîneur</label><input id="code" type="password" autocomplete="off" value="${esc(code)}" placeholder="Seul l'entraîneur l'a">
       <button class="sec plein" data-act="code">${code ? "Mettre à jour le code" : "Activer le mode entraîneur"}</button>
       <p class="petit" style="margin:0">${UI.msgEnt ? esc(UI.msgEnt) : code ? (UI.admin ? "Mode entraîneur actif : un bloc « Entraîner l'IA » apparaît sous chaque résultat." : "Code non reconnu par le relais.") : "Sans code, tu utilises l'IA telle que l'entraîneur l'a réglée."}</p></div>
+    ${UI.admin ? `<div class="carte pile"><h3 style="font-size:19px">Propositions des utilisateurs (${UI.propositions.length})</h3>
+      ${UI.propositions.length ? UI.propositions.map((x) => `<div class="pile" style="border-top:1px solid var(--line);padding-top:10px"><div class="petit">L'IA avait vu : ${esc(x.avant)}</div>
+        <label for="pr-${esc(x.id)}">Ce que c'est vraiment</label><textarea id="pr-${esc(x.id)}" maxlength="300">${esc(x.apres)}</textarea>
+        <div class="grille2"><button data-act="valider" data-id="${esc(x.id)}">Valider</button><button class="sec" data-act="refuser" data-id="${esc(x.id)}">Refuser</button></div></div>`).join("") : `<p class="petit" style="margin:0">Aucune proposition en attente. Quand quelqu'un signale une erreur, elle apparaît ici : tu peux l'ajuster puis la valider.</p>`}</div>` : ""}
     ${c && c.length ? `<div class="carte"><h3 style="font-size:19px">Corrections</h3>${c.map((x) => `<div class="repas" style="grid-template-columns:minmax(0,1fr) auto"><div><b>${esc(x.plat)}</b><div class="petit">${esc(x.apres)}${x.note ? " · règle : " + esc(x.note) : ""}</div></div>${UI.admin ? `<button class="dang" data-act="supprCorr" data-id="${esc(x.id)}">Retirer</button>` : ""}</div>`).join("")}</div>` : ""}
   </div>`;
 }
@@ -202,19 +222,41 @@ async function appelRelais(chemin, options) {
 async function chargerCorrections() {
   if (!RELAIS) { UI.corrections = []; UI.msgEnt = "Relais non configuré."; return; }
   try { const d = await appelRelais("/corrections"); UI.corrections = d.corrections || []; UI.admin = !!d.admin; } catch (e) { UI.corrections = []; UI.msgEnt = e.message; }
+  UI.propositions = [];
+  if (UI.admin) { try { UI.propositions = (await appelRelais("/propositions")).propositions || []; } catch {} }
   if (UI.vue === "entrainer") rendre();
 }
 
 document.addEventListener("click", async (e) => {
   const nav = e.target.closest("nav button"); if (nav) { if (nav.dataset.vue === "scan" && UI.etat !== "analyse") UI.etat = UI.analyse ? UI.etat : "pret"; aller(nav.dataset.vue); return; }
   const b = e.target.closest("[data-act]"); if (!b) return; const act = b.dataset.act;
-  if (act === "exemple") ouvrirAnalyse(N.normaliserScan(EXEMPLE), null, EXEMPLE, true);
+  if (act === "exemple") ouvrirAnalyse(N.normaliserScan(EXEMPLE), null, null, true);
   if (act === "nouveau") { UI.analyse = null; UI.etat = "pret"; rendre(); window.scrollTo(0, 0); }
   if (act === "allerScan") aller("scan");
   if (act === "ajouter") {
     const A = UI.analyse, r = N.analyserRepas(A.scan.aliments, profil, A.creneau);
     repas.push({ id: A.id, ts: A.ts, nom: A.scan.plat, creneau: A.creneau, aliments: A.scan.aliments, kcal: Math.round(r.totaux.kcal), verdict: r.healthy.verdict, photo: A.photo });
     sauverRepas(); UI.analyse = null; UI.etat = "pret"; aller("jour"); window.scrollTo(0, 0);
+  }
+  if (act === "rectifier") {
+    const A = UI.analyse, vrai = ($("#r-vrai").value || "").trim();
+    if (vrai.length < 3) { $("#r-msg").textContent = "Écris ce qu'est vraiment le plat."; return; }
+    const avant = A.scan.plat + " : " + resumeScan(A.scan), ancien = A;
+    UI.etat = "analyse"; UI.vignette = A.photo; UI.msgAttente = "L'IA refait l'analyse avec ta correction…"; rendre(); window.scrollTo(0, 0);
+    try {
+      const scan = await envoyerScan(A.image, A.indice, { vrai, avant });
+      if (!scan) throw new Error("L'IA n'a pas réussi à refaire l'analyse.");
+      ouvrirAnalyse(scan, A.photo, { image: A.image, indice: A.indice }, false, vrai);
+      const corps = JSON.stringify({ plat: scan.plat, avant, apres: vrai });
+      (code && UI.admin ? appelRelais("/corrections", { method: "POST", body: corps }) : appelRelais("/propositions", { method: "POST", body: corps })).catch(() => {});
+    } catch (err) { UI.analyse = ancien; UI.etat = "resultat"; UI.ouvrirTrompe = true; rendre(); const m = $("#r-msg"); if (m) m.textContent = err.message; }
+    UI.ouvrirTrompe = false; return;
+  }
+  if (act === "valider" || act === "refuser") {
+    const id = b.dataset.id, apres = $("#pr-" + id)?.value || "";
+    try { await appelRelais("/propositions/" + id + (act === "valider" ? "/valider" : ""), { method: act === "valider" ? "POST" : "DELETE", body: act === "valider" ? JSON.stringify({ apres }) : undefined }); UI.msgEnt = act === "valider" ? "Proposition validée : l'IA l'utilisera dès le prochain scan." : "Proposition refusée."; }
+    catch (err) { UI.msgEnt = err.message; }
+    await chargerCorrections(); return;
   }
   if (act === "suppr") { repas = repas.filter((r) => r.id !== b.dataset.id); sauverRepas(); rendre(); }
   if (act === "code") { code = ($("#code").value || "").trim(); ecrire("code", code); UI.msgEnt = ""; await chargerCorrections(); rendre(); }
@@ -241,6 +283,7 @@ document.addEventListener("submit", (e) => {
   if (premier) aller("scan"); else rendre();
 });
 
+if (code) chargerCorrections(); // sait tout de suite si ce téléphone est celui de l'entraîneur
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 rendre();
 }

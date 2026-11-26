@@ -20,7 +20,8 @@ L’IA (Claude Sonnet 5.5) reconnaît les aliments et les quantités sur la phot
 ## Entraîner l'IA
 
 1. **Cas généraux** : ajouter des plats dans `REFERENCES` (engine.js) et des cas dans `test.js`, puis `./test.sh`.
-2. **Entraîneur humain** : dans l'appli, onglet *Entraîner*, entrer le code entraîneur. Sous chaque résultat apparaît « Entraîner l'IA sur ce plat » : écrire la bonne réponse. Les corrections (200 max) sont envoyées à l'IA à chaque scan, pour tout le monde.
+2. **Tout utilisateur** : sous un résultat, « L’IA s’est trompée ? » → il écrit ce qu’est vraiment le plat, l’IA réanalyse la photo, et la correction part en proposition.
+3. **Entraîneur humain** : valide ou refuse les propositions dans l’onglet *Entraîner* ; dans l'appli, onglet *Entraîner*, entrer le code entraîneur. Sous chaque résultat apparaît « Entraîner l'IA sur ce plat » : écrire la bonne réponse. Les corrections (200 max) sont envoyées à l'IA à chaque scan, pour tout le monde.
 
 ## Mettre en ligne
 

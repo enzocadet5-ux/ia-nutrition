@@ -330,9 +330,11 @@ function promptSysteme(){
   '- Si la photo ne montre pas de nourriture : {"estUnPlat":false}.\n'+
   'Plats de référence (portions et valeurs types, à utiliser comme repères) : '+refsTexte()+'.';
 }
-function promptUtilisateur(indice, corrections){
-  return exemplesTexte(choisirExemples(corrections, indice))+
+function promptUtilisateur(indice, corrections, rectif){
+  var r=rectif&&rectif.vrai?String(rectif.vrai).slice(0,300):'';
+  return exemplesTexte(choisirExemples(corrections, (indice||'')+' '+r))+
     (indice?'Précision de l\'utilisateur : « '+String(indice).slice(0,200)+' ».\n':'')+
+    (r?'Une première analyse de cette photo était fausse'+(rectif.avant?' (elle avait vu : '+String(rectif.avant).slice(0,300)+')':'')+'. L\'utilisateur, qui a le plat devant lui, indique ce que c\'est réellement : « '+r+' ». Ce qu\'il dit prime sur ce que tu crois voir : refais toute l\'analyse avec ces aliments (noms, quantités, transformation, additifs) et garde la photo seulement pour estimer les portions.\n':'')+
     'Analyse ce repas.';
 }
 // Lit le JSON renvoyé par l'IA, même entouré de texte.
