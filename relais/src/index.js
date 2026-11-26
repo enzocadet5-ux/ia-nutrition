@@ -57,7 +57,9 @@ async function scanner(req, env, H) {
   if (!TYPES_IMAGE.includes(type)) return json({ erreur: "Format de photo non pris en charge." }, 400, H);
   if (!(await quotaJour(env))) return json({ erreur: "Limite de scans du jour atteinte. Réessaie demain." }, 429, H);
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const cle = String(env.ANTHROPIC_API_KEY || "").trim();
+  if (!cle.startsWith("sk-ant-")) return json({ erreur: "Clé API absente ou mal collée côté relais." }, 500, H);
+  const client = new Anthropic({ apiKey: cle });
   const corrections = await lireCorrections(env);
   try {
     const rep = await client.beta.messages.create({
