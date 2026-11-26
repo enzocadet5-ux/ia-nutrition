@@ -12,7 +12,7 @@ MAX_SCANS_JOUR = "300"
 # Corrections d'entraînement + compteur du jour (l'id est rempli à la création)
 [[kv_namespaces]]
 binding = "CORRECTIONS"
-id = "A_REMPLIR"
+id = "214e1cde94dd4b9e9b9204b77631273a"
 
 # 8 scans par minute et par adresse IP
 [[ratelimits]]
