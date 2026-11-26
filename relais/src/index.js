@@ -6,7 +6,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import NutriIA from "../../engine.js";
 
-const MODELE = "claude-opus-5-5";
+const MODELE = "claude-sonnet-5-5";
 const TYPES_IMAGE = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const MAX_BASE64 = 6_500_000; // ≈ 4,8 Mo d'image (limite API : 5 Mo)
 

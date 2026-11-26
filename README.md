@@ -15,7 +15,7 @@ Appli installable (PWA) : tu prends ton plat en photo et elle te dit
 | `docs/` | L'appli (hébergée par GitHub Pages). Profil et historique restent sur le téléphone. |
 | `relais/` | Cloudflare Worker qui cache la clé API Anthropic, appelle Claude (vision) et garde les corrections d'entraînement. |
 
-L'IA (Claude Opus 5.5) reconnaît les aliments et les quantités sur la photo ; le moteur décide du verdict.
+L’IA (Claude Sonnet 5.5) reconnaît les aliments et les quantités sur la photo ; le moteur décide du verdict.
 
 ## Entraîner l'IA
 
