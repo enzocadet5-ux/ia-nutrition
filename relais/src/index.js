@@ -17,7 +17,7 @@ function cors(origine, env) {
     autorise,
     entetes: {
       "Access-Control-Allow-Origin": autorise ? origine : "null",
-      "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type,Authorization",
       "Access-Control-Max-Age": "86400",
       Vary: "Origin",
@@ -120,6 +120,27 @@ export default {
       const liste = [item, ...(await lireCorrections(env))].slice(0, 200);
       await env.CORRECTIONS.put("liste", JSON.stringify(liste));
       return json({ ok: true, total: liste.length }, 200, H);
+    }
+    // Sauvegarde en ligne (seulement si l'utilisateur a accepté dans l'appli) :
+    // une copie par téléphone, protégée par un code secret de 32 caractères, supprimable à tout moment.
+    const ms = url.pathname.match(/^\/sauvegarde\/([0-9a-f]{32})$/);
+    if (ms && req.method === "GET") {
+      const v = await env.CORRECTIONS.get("s:" + ms[1]);
+      return v ? new Response(v, { status: 200, headers: { "Content-Type": "application/json; charset=utf-8", ...H } }) : json({ erreur: "Aucune sauvegarde pour ce code." }, 404, H);
+    }
+    if (ms && req.method === "DELETE") {
+      await env.CORRECTIONS.delete("s:" + ms[1]);
+      return json({ ok: true }, 200, H);
+    }
+    if (ms && req.method === "PUT") {
+      const ip = req.headers.get("CF-Connecting-IP") || "inconnu";
+      if (env.LIMITEUR) { const { success } = await env.LIMITEUR.limit({ key: "s:" + ip }); if (!success) return json({ erreur: "Trop de sauvegardes d'un coup." }, 429, H); }
+      const brut = await req.text();
+      if (brut.length > 400000) return json({ erreur: "Sauvegarde trop lourde." }, 413, H);
+      let d; try { d = JSON.parse(brut); } catch { return json({ erreur: "Sauvegarde illisible." }, 400, H); }
+      if (!d || typeof d !== "object" || !Array.isArray(d.repas) || d.consentement !== true) return json({ erreur: "Sauvegarde invalide." }, 400, H);
+      await env.CORRECTIONS.put("s:" + ms[1], JSON.stringify({ v: 1, ts: Date.now(), profil: d.profil || null, repas: d.repas.slice(-400) }), { expirationTtl: 31536000 });
+      return json({ ok: true, ts: Date.now() }, 200, H);
     }
     // Propositions : n'importe quel utilisateur signale une erreur ; l'entraîneur valide.
     if (url.pathname === "/propositions" && req.method === "POST") {

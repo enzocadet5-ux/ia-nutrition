@@ -41,3 +41,11 @@ Mettre cette adresse dans `docs/config.js`, puis `cp engine.js docs/` et pousser
 - Le relais n'accepte que des analyses de plat (prompt fixé côté serveur).
 - 8 scans par minute et par IP, `MAX_SCANS_JOUR` (300) par jour pour tous.
 - Fixe aussi une limite de dépense mensuelle sur console.anthropic.com → Billing → Limits.
+
+## Sauvegarde des données
+
+Au premier lancement, chaque utilisateur choisit :
+- **Oui** : profil et repas (sans les photos) sont copiés automatiquement dans le KV du relais à chaque changement, sous un code secret de 32 caractères propre au téléphone (affiché dans Profil, sert à tout récupérer sur un autre téléphone). Copie gardée 1 an après la dernière modification.
+- **Non** : rien n'est envoyé ; la journée et les semaines restent seulement sur le téléphone, sans sauvegarde.
+
+Le choix se change dans Profil ; passer à « Non » supprime la copie en ligne.

@@ -14,12 +14,39 @@ function ecrire(cle, v) { try { localStorage.setItem("ian_" + cle, JSON.stringif
 let profil = lire("profil", null);
 let repas = lire("repas", []);
 let code = lire("code", "");
+let cleSauv = lire("cleSauv", "");          // code secret de sauvegarde de ce téléphone
+let sauvInfo = lire("sauvInfo", { ts: 0, erreur: "" });
+const sauvOui = () => profil && profil.sauvegarde === "oui";
+function nouvelleCle() { const a = new Uint8Array(16); crypto.getRandomValues(a); return [...a].map((x) => x.toString(16).padStart(2, "0")).join(""); }
+let minuteurSauv = null;
+function programmerSauvegarde() {
+  if (!sauvOui() || !RELAIS) return;
+  clearTimeout(minuteurSauv);
+  minuteurSauv = setTimeout(sauvegarderEnLigne, 1500);
+}
+async function sauvegarderEnLigne() {
+  if (!sauvOui() || !RELAIS) return;
+  if (!cleSauv) { cleSauv = nouvelleCle(); ecrire("cleSauv", cleSauv); }
+  const corps = { consentement: true, profil, repas: repas.map(({ photo, ...r }) => r) };
+  try {
+    const rep = await fetch(RELAIS + "/sauvegarde/" + cleSauv, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corps) });
+    if (!rep.ok) throw new Error((await rep.json().catch(() => ({}))).erreur || "Erreur " + rep.status);
+    sauvInfo = { ts: Date.now(), erreur: "" };
+  } catch (e) { sauvInfo = { ts: sauvInfo.ts, erreur: e.message === "Failed to fetch" ? "pas de réseau, nouvel essai au prochain changement" : e.message }; }
+  ecrire("sauvInfo", sauvInfo); if (UI.vue === "profil") rendre();
+}
+async function supprimerEnLigne() {
+  if (!cleSauv || !RELAIS) return;
+  try { await fetch(RELAIS + "/sauvegarde/" + cleSauv, { method: "DELETE" }); } catch {}
+  cleSauv = ""; ecrire("cleSauv", ""); sauvInfo = { ts: 0, erreur: "" }; ecrire("sauvInfo", sauvInfo);
+}
 const UI = { vue: profil ? "scan" : "profil", etat: "pret", analyse: null, erreur: "", corrections: null, propositions: [], admin: false, msgEnt: "" };
 
 function sauverRepas() {
   repas = repas.filter((r) => Date.now() - r.ts < 30 * 864e5); // 30 jours
   repas.forEach((r, i) => { if (i < repas.length - 40) r.photo = null; }); // vignettes des 40 derniers seulement
   if (!ecrire("repas", repas)) { repas.forEach((r) => (r.photo = null)); ecrire("repas", repas); }
+  programmerSauvegarde();
 }
 
 // ---------- Exemple (sans photo, pour essayer) ----------
@@ -68,11 +95,22 @@ function ouvrirAnalyse(scan, photo, source, exemple, rectifie) {
   UI.etat = "resultat"; UI.indice = ""; aller("scan"); window.scrollTo(0, 0);
 }
 
+// ---------- Consentement à la sauvegarde ----------
+const TEXTE_SAUV = `<p style="margin:0">IA Nutrition peut <b>sauvegarder en ligne</b> ton profil (âge, sexe, taille, poids, activité, objectif) et tes repas (aliments, calories, verdicts). La copie est stockée sur le serveur de l'appli (Cloudflare), protégée par un code secret propre à ton téléphone. Les photos ne sont pas sauvegardées.</p>
+  <p class="petit" style="margin:0"><b>Si tu acceptes</b> : ta journée et tes semaines sont gardées et tu peux les récupérer sur un autre téléphone avec ton code.<br><b>Si tu refuses</b> : rien n'est envoyé, mais ta journée et tes semaines ne sont pas sauvegardées. Si tu changes de téléphone, supprimes l'appli ou effaces les données du navigateur, tout est perdu, et ton expérience dans l'appli sera limitée.<br>Tu peux changer d'avis à tout moment dans Profil ; si tu arrêtes, ta copie en ligne est supprimée.</p>`;
+function blocChoixSauv(dansFormulaire) {
+  return `<div class="carte pile" style="border-color:var(--leaf)"><h3 style="font-size:19px">Sauvegarde de tes données</h3>${TEXTE_SAUV}
+    ${dansFormulaire
+      ? `<label class="ligne" style="font-weight:600"><input type="radio" name="sauv" value="oui" required style="width:22px;height:22px"> Oui, sauvegarder mes données en ligne</label><label class="ligne" style="font-weight:600"><input type="radio" name="sauv" value="non" style="width:22px;height:22px"> Non, garder seulement sur ce téléphone (sans sauvegarde)</label>`
+      : `<div class="grille2"><button data-act="consentir" data-val="oui">Oui, sauvegarder</button><button class="sec" data-act="consentir" data-val="non">Non merci</button></div>`}</div>`;
+}
+
 // ---------- Vues ----------
 function vueScan() {
   if (UI.etat === "analyse") return `<div class="attente">${UI.vignette ? `<img src="${UI.vignette}" alt="Ta photo">` : ""}<div class="roue" role="status" aria-label="Analyse en cours"></div><b>${esc(UI.msgAttente || "L'IA analyse ton plat…")}</b><span class="petit">Aliments, quantités, additifs, transformation</span></div>`;
   if (UI.etat === "resultat" && UI.analyse) return vueResultat();
   return `<div class="pile">
+    ${profil && !profil.sauvegarde ? blocChoixSauv(false) : ""}
     ${UI.etat === "erreur" ? `<div class="alerte"><b>Analyse impossible.</b> ${esc(UI.erreur)}</div>` : ""}
     <label class="scan-zone" for="photo">
       <span class="rond"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
@@ -181,13 +219,31 @@ function vueProfil() {
     <div><label for="p-act">Activité</label><select id="p-act">${Object.keys(N.ACTIVITES).map((k) => `<option value="${k}" ${k === p.activite ? "selected" : ""}>${N.ACTIVITES[k][1]}</option>`).join("")}</select></div>
     <div><label for="p-obj">Objectif</label><select id="p-obj"><option value="maintenir" ${p.objectif === "maintenir" ? "selected" : ""}>Garder mon poids</option><option value="perdre" ${p.objectif === "perdre" ? "selected" : ""}>Perdre un peu de poids</option><option value="prendre" ${p.objectif === "prendre" ? "selected" : ""}>Prendre du muscle</option></select></div>
     <label class="ligne" style="font-weight:500"><input type="checkbox" id="p-gros" style="width:22px;height:22px" ${p.grossesse ? "checked" : ""}> Grossesse ou allaitement</label>
+    ${profil ? "" : blocChoixSauv(true)}
     <button class="plein" type="submit">${profil ? "Enregistrer" : "Commencer"}</button>
     ${b ? `<div class="carte pile"><h3 style="font-size:19px">Tes repères</h3>
       <div class="grille2"><div><span class="petit">Objectif du jour</span><div class="kcal" style="font-size:32px">${fmt(b.cible)}</div><span class="petit">kcal</span></div><div><span class="petit">IMC</span><div class="kcal" style="font-size:32px">${fmt(b.imc, 1)}</div><span class="petit">${esc(b.imcCategorie)}</span></div></div>
       <p class="petit" style="margin:0">Métabolisme de base ${fmt(b.bmr)} kcal × activité = dépense ${fmt(b.depense)} kcal (formule Mifflin-St Jeor).</p>
       <table class="tab"><tbody>${Object.keys(N.CRENEAUX).map((k) => `<tr><td>${N.CRENEAUX[k].nom}</td><td class="r">${Math.round(N.CRENEAUX[k].part * 100)} %</td><td class="r"><b>${fmt(Math.round(b.cible * N.CRENEAUX[k].part / 10) * 10)} kcal</b></td></tr>`).join("")}</tbody></table>
       ${b.notes.map((n) => `<p class="petit" style="margin:0">${esc(n)}</p>`).join("")}</div>` : ""}
-  </form>`;
+  </form>
+  ${profil ? blocGestionSauv() : `<div class="carte pile" style="margin-top:14px"><h3 style="font-size:19px">Tu avais déjà l'appli ?</h3><p class="petit" style="margin:0">Entre ton code de sauvegarde pour tout récupérer (profil, journée, semaines).</p>${champRestaurer()}</div>`}`;
+}
+function champRestaurer() {
+  return `<div><label for="cle-rest">Code de sauvegarde</label><input id="cle-rest" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="32 caractères (chiffres et lettres a à f)"></div><button class="sec plein" type="button" data-act="restaurer">Restaurer mes données</button><p class="petit" id="rest-msg" style="margin:0"></p>`;
+}
+function blocGestionSauv() {
+  const h = sauvInfo.ts ? new Date(sauvInfo.ts).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "";
+  if (sauvOui()) return `<div class="carte pile" style="margin-top:14px"><h3 style="font-size:19px">Sauvegarde en ligne : activée</h3>
+    <p class="petit" style="margin:0">${sauvInfo.erreur ? "Dernier essai échoué : " + esc(sauvInfo.erreur) + "." : h ? "Dernière sauvegarde automatique : " + esc(h) + "." : "Première sauvegarde en cours…"}</p>
+    ${cleSauv ? `<div><label>Ton code de sauvegarde (garde-le précieusement, ne le donne à personne)</label><input readonly id="cle-aff" value="${esc(cleSauv)}" style="font-family:ui-monospace,monospace;font-size:15px"></div><button class="sec plein" type="button" data-act="copierCle">Copier le code</button>` : ""}
+    <button class="dang plein" type="button" data-act="consentir" data-val="non">Arrêter et supprimer ma sauvegarde en ligne</button>
+    <details><summary class="petit" style="cursor:pointer">Récupérer une autre sauvegarde</summary><div class="pile" style="margin-top:10px">${champRestaurer()}</div></details></div>`;
+  return `<div class="carte pile" style="margin-top:14px;border-color:var(--yolk)"><h3 style="font-size:19px">Sauvegarde en ligne : désactivée</h3>
+    <p class="petit" style="margin:0">Ta journée et tes semaines restent seulement sur ce téléphone, sans sauvegarde : si tu le changes ou supprimes l'appli, elles sont perdues.</p>
+    <details><summary class="petit" style="cursor:pointer">Ce qui serait sauvegardé</summary><div style="margin-top:8px">${TEXTE_SAUV}</div></details>
+    <button class="plein" type="button" data-act="consentir" data-val="oui">Activer la sauvegarde en ligne</button>
+    <details><summary class="petit" style="cursor:pointer">Récupérer une sauvegarde avec un code</summary><div class="pile" style="margin-top:10px">${champRestaurer()}</div></details></div>`;
 }
 
 function vueEntrainer() {
@@ -258,6 +314,28 @@ document.addEventListener("click", async (e) => {
     catch (err) { UI.msgEnt = err.message; }
     await chargerCorrections(); return;
   }
+  if (act === "consentir") {
+    if (!profil) return;
+    profil.sauvegarde = b.dataset.val; profil.sauvegardeDate = new Date().toISOString(); ecrire("profil", profil);
+    if (b.dataset.val === "oui") await sauvegarderEnLigne(); else await supprimerEnLigne();
+    rendre(); return;
+  }
+  if (act === "copierCle") { try { await navigator.clipboard.writeText(cleSauv); b.textContent = "Code copié"; } catch { $("#cle-aff")?.select(); b.textContent = "Sélectionné : copie-le"; } return; }
+  if (act === "restaurer") {
+    const k = ($("#cle-rest").value || "").trim().toLowerCase(), m = $("#rest-msg");
+    if (!/^[0-9a-f]{32}$/.test(k)) { m.textContent = "Ce code n'a pas le bon format (32 caractères)."; return; }
+    m.textContent = "Récupération…";
+    try {
+      const rep = await fetch(RELAIS + "/sauvegarde/" + k); const d = await rep.json().catch(() => ({}));
+      if (!rep.ok) throw new Error(d.erreur || "Erreur " + rep.status);
+      const ids = new Set(repas.map((r) => r.id));
+      repas = repas.concat((d.repas || []).filter((r) => r && r.id && !ids.has(r.id))).sort((a, b) => a.ts - b.ts);
+      if (d.profil) profil = { ...d.profil, sauvegarde: "oui", sauvegardeDate: new Date().toISOString() };
+      cleSauv = k; ecrire("cleSauv", k); ecrire("profil", profil); ecrire("vu", true); sauverRepas();
+      UI.vue = "jour"; rendre(); window.scrollTo(0, 0);
+    } catch (err) { m.textContent = err.message === "Failed to fetch" ? "Pas de connexion au relais." : err.message; }
+    return;
+  }
   if (act === "suppr") { repas = repas.filter((r) => r.id !== b.dataset.id); sauverRepas(); rendre(); }
   if (act === "code") { code = ($("#code").value || "").trim(); ecrire("code", code); UI.msgEnt = ""; await chargerCorrections(); rendre(); }
   if (act === "corriger") {
@@ -278,8 +356,10 @@ document.addEventListener("change", (e) => {
 });
 document.addEventListener("submit", (e) => {
   if (e.target.id !== "f-profil") return; e.preventDefault();
-  profil = { age: +$("#p-age").value, sexe: $("#p-sexe").value, taille: +$("#p-taille").value, poids: +$("#p-poids").value, activite: $("#p-act").value, objectif: $("#p-obj").value, grossesse: $("#p-gros").checked };
-  ecrire("profil", profil); const premier = UI.vue === "profil" && !lire("vu", false); ecrire("vu", true);
+  const choix = document.querySelector('input[name="sauv"]:checked')?.value || profil?.sauvegarde || "";
+  const dateChoix = profil?.sauvegardeDate || new Date().toISOString();
+  profil = { sauvegarde: choix, sauvegardeDate: dateChoix, age: +$("#p-age").value, sexe: $("#p-sexe").value, taille: +$("#p-taille").value, poids: +$("#p-poids").value, activite: $("#p-act").value, objectif: $("#p-obj").value, grossesse: $("#p-gros").checked };
+  ecrire("profil", profil); programmerSauvegarde(); const premier = UI.vue === "profil" && !lire("vu", false); ecrire("vu", true);
   if (premier) aller("scan"); else rendre();
 });
 
