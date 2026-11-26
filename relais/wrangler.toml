@@ -1,0 +1,25 @@
+name = "ia-nutrition-relais"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Adresse de l'appli autorisée à utiliser le relais (GitHub Pages)
+ORIGINES = "https://enzocadet5-ux.github.io"
+# Garde-fou de dépense : nombre maximum de scans par jour, tous utilisateurs confondus
+MAX_SCANS_JOUR = "300"
+
+# Corrections d'entraînement + compteur du jour (l'id est rempli à la création)
+[[kv_namespaces]]
+binding = "CORRECTIONS"
+id = "A_REMPLIR"
+
+# 8 scans par minute et par adresse IP
+[[ratelimits]]
+name = "LIMITEUR"
+namespace_id = "1001"
+simple = { limit = 8, period = 60 }
+
+# Secrets (jamais dans ce fichier) :
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#   npx wrangler secret put ADMIN_TOKEN

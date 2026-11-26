@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>IA Nutrition</title>
+<meta name="description" content="Scanne ton plat : HEALTHY ou pas, calories, portion selon ton poids et excès de la journée.">
+<meta name="theme-color" content="#1f7a45">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icone.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icone-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="IA Nutrition">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#0d1410);--surf:light-dark(#f3f8f2,#16211a);--ink:light-dark(#14231a,#e8f1ea);--ink2:light-dark(#4b5e52,#a9bcae);--line:light-dark(#dce7dd,#2a3a2f);--leaf:light-dark(#1f7a45,#4cc27c);--leafbg:light-dark(#e3f3e8,#13301f);--yolk:light-dark(#b97f00,#f2bd3a);--yolkbg:light-dark(#fff3d6,#3a2c0c);--tom:light-dark(#c9381f,#ff7a5c);--tombg:light-dark(#fde8e3,#3a1810);--band:#1f7a45}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 Inter,system-ui,sans-serif;overflow-x:clip;padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+h1,h2,h3{font-family:Archivo,system-ui,sans-serif;letter-spacing:-.02em;line-height:1.08;margin:0}
+.wrap{max-width:720px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{background:var(--band);color:#fff;padding-top:calc(env(safe-area-inset-top,0px) + 18px);padding-bottom:18px}
+header h1{font-size:30px;font-weight:800}
+header p{margin:4px 0 0;opacity:.9;font-size:14px}
+main{padding-block:18px}
+section[hidden]{display:none}
+.carte{background:var(--surf);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+.pile>*+*{margin-top:12px}
+.ligne{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.entre{justify-content:space-between}
+.petit{font-size:13.5px;color:var(--ink2)}
+label{display:block;font-weight:600;font-size:14px;margin-bottom:4px}
+input,select,textarea{font:inherit;font-size:16px;width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+textarea{min-height:70px}
+.grille2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+button,.bouton{font:600 16px Inter,system-ui,sans-serif;border:0;border-radius:12px;padding:13px 16px;cursor:pointer;background:var(--leaf);color:#fff;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;text-decoration:none}
+button.sec,.bouton.sec{background:transparent;color:var(--leaf);border:1.5px solid var(--leaf)}
+button.dang{background:transparent;color:var(--tom);border:1.5px solid var(--tom);min-height:40px;padding:8px 12px;font-size:14px}
+button:disabled{opacity:.5;cursor:default}
+.plein{width:100%}
+.scan-zone{display:grid;place-items:center;text-align:center;gap:10px;border:2px dashed var(--leaf);border-radius:20px;padding:26px 16px;background:var(--leafbg)}
+.scan-zone .rond{width:84px;height:84px;border-radius:50%;background:var(--leaf);display:grid;place-items:center}
+.verdict{border-radius:20px;padding:18px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:center}
+.verdict.v-HEALTHY{background:var(--leafbg);color:var(--leaf)}
+.verdict.v-MOYEN{background:var(--yolkbg);color:var(--yolk)}
+.verdict.v-PAS{background:var(--tombg);color:var(--tom)}
+.verdict b.mot{font-family:Archivo,sans-serif;font-weight:800;font-size:clamp(28px,8vw,40px);letter-spacing:-.02em;display:block;line-height:1}
+.verdict .txt{color:var(--ink)}
+.kcal{font-family:Archivo,sans-serif;font-weight:800;font-size:clamp(40px,12vw,56px);line-height:1}
+.barre{position:relative;height:14px;border-radius:7px;background:var(--line);overflow:visible}
+.barre i{position:absolute;left:0;top:0;bottom:0;border-radius:7px}
+.barre .rep{position:absolute;top:-5px;bottom:-5px;width:2px;background:var(--ink)}
+.chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600}
+.c-rouge{background:var(--tombg);color:var(--tom)}.c-orange{background:var(--yolkbg);color:var(--yolk)}.c-vert{background:var(--leafbg);color:var(--leaf)}
+ul.raisons{margin:0;padding-left:20px}
+ul.raisons li{margin:3px 0}
+.tab{width:100%;border-collapse:collapse;font-size:14px}
+.tab td,.tab th{padding:8px 4px;border-bottom:1px solid var(--line);text-align:left}
+.tab .r{text-align:right;white-space:nowrap}
+.tab input{width:76px;padding:6px 8px;font-size:16px}
+.defile{overflow-x:auto}
+.jour-l{display:grid;grid-template-columns:minmax(0,9em) minmax(0,1fr) auto;gap:10px;align-items:center;margin:10px 0}
+.repas{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.repas img,.repas .ph{width:56px;height:56px;border-radius:12px;object-fit:cover;background:var(--leafbg);display:grid;place-items:center;font-size:24px}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding-bottom:env(safe-area-inset-bottom,0px);z-index:5}
+nav button{background:none;color:var(--ink2);border-radius:0;flex-direction:column;gap:2px;font-size:12.5px;min-height:62px;padding:6px 2px}
+nav button[aria-current=true]{color:var(--leaf)}
+nav svg{width:24px;height:24px}
+.attente{display:grid;place-items:center;gap:14px;padding:30px 0;text-align:center}
+.attente img{width:200px;height:200px;object-fit:cover;border-radius:20px}
+.roue{width:34px;height:34px;border:4px solid var(--line);border-top-color:var(--leaf);border-radius:50%;animation:t 1s linear infinite}
+@keyframes t{to{transform:rotate(360deg)}}
+.alerte{border-radius:12px;padding:12px;background:var(--tombg);color:var(--ink)}
+.note{border-radius:12px;padding:12px;background:var(--yolkbg);color:var(--ink);font-size:14px}
+.photo{width:100%;max-height:260px;object-fit:cover;border-radius:16px}
+@media (prefers-reduced-motion:reduce){.roue{animation:none}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>IA Nutrition</h1><p>Photo du plat → HEALTHY ou pas, calories, portion et bilan du jour.</p></div></header>
+<main class="wrap">
+  <section id="v-scan"></section>
+  <section id="v-jour" hidden></section>
+  <section id="v-profil" hidden></section>
+  <section id="v-entrainer" hidden></section>
+</main>
+<nav id="nav" aria-label="Navigation">
+  <button data-vue="scan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3.5"/></svg>Scanner</button>
+  <button data-vue="jour"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Ma journée</button>
+  <button data-vue="profil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Profil</button>
+  <button data-vue="entrainer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.5-.8z"/></svg>Entraîner</button>
+</nav>
+<script src="config.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
