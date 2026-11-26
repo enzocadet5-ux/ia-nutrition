@@ -79,4 +79,18 @@ verifie('Prompt système stable (cache)', N.promptSysteme()===N.promptSysteme() 
 verifie('JSON lu même entouré de texte', N.lireJSON('Voici : {"estUnPlat":false} fin').estUnPlat===false);
 verifie('JSON cassé → null', N.lireJSON('{oups')===null);
 
+// Semaine
+var repasSain={nom:'Midi',aliments:[ref('Blanc de poulet grillé'),ref('Riz blanc cuit',250),ref('Haricots verts'),ref('Lentilles cuites',300)],verdict:'HEALTHY'};
+var repasGras={nom:'Fast-food',aliments:[ref('Burger fast-food'),ref('Frites surgelées de fast-food'),ref('Soda cola')],verdict:'PAS HEALTHY'};
+var sem=N.bilanSemaine([{cle:'j1',repas:[]},{cle:'j2',repas:[repasSain,repasGras]},{cle:'j3',repas:[repasGras,repasGras,repasGras]},{cle:'j4',repas:[repasSain]}], lea);
+verifie('Semaine : jours suivis', sem.joursSuivis===3, sem.joursSuivis);
+verifie('Semaine : part healthy', sem.partHealthy===0.33, sem.partHealthy);
+verifie('Semaine : série de 3 jours', sem.serie===3, sem.serie);
+verifie('Semaine : jour fast-food = trop', sem.jours[2].etat==='trop', sem.jours[2].etat);
+verifie('Semaine : excès le plus fréquent cité', sem.exces.length>0 && sem.exces[0].jours>=1);
+verifie('Semaine vide sans erreur', N.bilanSemaine([{cle:'a',repas:[]}],lea).moyenneKcal===0);
+var om=N.objectifsMacros(N.besoins(lea));
+verifie('Macros cohérentes avec la cible', Math.abs(om.proteines*4+om.glucides*4+om.lipides*9-N.besoins(lea).cible)<10, JSON.stringify(om));
+verifie('Prompt texte contient la description', N.promptTexte('2 oeufs et une baguette',[]).indexOf('2 oeufs')>0);
+
 print(ok+' réussis, '+ko+' échoués');

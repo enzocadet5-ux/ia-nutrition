@@ -58,8 +58,11 @@ async function scanner(req, env, H) {
   try { corps = await req.json(); } catch { return json({ erreur: "Requête illisible." }, 400, H); }
   const { image, type, indice, rectif } = corps || {};
   const rect = rectif && typeof rectif === "object" ? { vrai: texte(rectif.vrai, 300), avant: texte(rectif.avant, 300) } : null;
-  if (typeof image !== "string" || !image.length || image.length > MAX_BASE64) return json({ erreur: "Photo manquante ou trop lourde." }, 400, H);
-  if (!TYPES_IMAGE.includes(type)) return json({ erreur: "Format de photo non pris en charge." }, 400, H);
+  const description = texte(corps && corps.description, 500);
+  const avecPhoto = typeof image === "string" && image.length > 0;
+  if (!avecPhoto && description.length < 3) return json({ erreur: "Envoie une photo ou décris ton repas." }, 400, H);
+  if (avecPhoto && image.length > MAX_BASE64) return json({ erreur: "Photo trop lourde." }, 400, H);
+  if (avecPhoto && !TYPES_IMAGE.includes(type)) return json({ erreur: "Format de photo non pris en charge." }, 400, H);
   if (!(await quotaJour(env))) return json({ erreur: "Limite de scans du jour atteinte. Réessaie demain." }, 429, H);
 
   const cle = String(env.ANTHROPIC_API_KEY || "").trim();
@@ -76,10 +79,12 @@ async function scanner(req, env, H) {
       system: [{ type: "text", text: NutriIA.promptSysteme(), cache_control: { type: "ephemeral" } }],
       messages: [{
         role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: type, data: image } },
-          { type: "text", text: NutriIA.promptUtilisateur(texte(indice, 200), corrections, rect && rect.vrai ? rect : null) },
-        ],
+        content: avecPhoto
+          ? [
+              { type: "image", source: { type: "base64", media_type: type, data: image } },
+              { type: "text", text: NutriIA.promptUtilisateur(texte(indice, 200), corrections, rect && rect.vrai ? rect : null) },
+            ]
+          : [{ type: "text", text: NutriIA.promptTexte(description, corrections) }],
       }],
     });
     if (rep.stop_reason === "refusal") return json({ erreur: "L'IA n'a pas pu analyser cette photo." }, 422, H);

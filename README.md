@@ -6,6 +6,14 @@ Appli installable (PWA) : tu prends ton plat en photo et elle te dit
 - **si c'est trop pour ton poids pour ce repas** (part du petit-déjeuner, déjeuner, goûter ou dîner) ;
 - **ce que tu as trop mangé dans la journée**.
 
+## Écrans
+
+- **Aujourd'hui** : anneau des calories, protéines / glucides / lipides / fibres, alertes du jour, repas par moment, « Refaire un repas ».
+- **Scanner** (bouton central) : photo, galerie ou **description écrite** ; résultat avec verdict, portion selon le poids, additifs, quantités ajustables (+ / −), « L'IA s'est trompée ? ».
+- **Semaine** : calories des 7 jours face à l'objectif, part de repas healthy, jours dans l'objectif, série, excès fréquents, historique.
+- **Entraîner** et **Profil** (repères, sauvegarde).
+- **Pépin**, la mascotte avocat, change d'humeur selon tes repas.
+
 ## Comment ça marche
 
 | Pièce | Rôle |

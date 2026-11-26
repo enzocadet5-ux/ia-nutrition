@@ -255,6 +255,28 @@ function bilanJour(repas, profil){
     resume: !repas.length ? 'Aucun repas enregistré aujourd\'hui.' : trop.length ? 'Aujourd\'hui, tu as dépassé : '+trop.map(function(l){return l.nom.toLowerCase();}).join(', ')+'.' : 'Rien de trop aujourd\'hui, tu restes dans les repères.' };
 }
 
+// Objectifs de macros du jour (g) : protéines selon le poids, lipides 35 %, le reste en glucides.
+function objectifsMacros(b){
+  var lip=Math.round(b.cible*0.35/9), prot=b.proteines;
+  return { proteines:prot, lipides:lip, glucides:Math.max(0,Math.round((b.cible-prot*4-lip*9)/4)), fibres:30 };
+}
+
+// Bilan de la semaine. jours = [{cle:"2026-11-26", repas:[{nom, aliments, verdict}]}], du plus ancien au plus récent.
+function bilanSemaine(jours, profil){
+  var b=besoins(profil), nbRepas=0, nbHealthy=0, joursSuivis=0, joursObjectif=0, sommeKcal=0, exces={};
+  var liste=jours.map(function(j){
+    var bj=bilanJour(j.repas, profil), k=bj.totaux.kcal, r=k/b.cible;
+    if(j.repas.length){ joursSuivis++; sommeKcal+=k; if(r>=0.85&&r<=1.1) joursObjectif++; }
+    j.repas.forEach(function(m){ nbRepas++; if(m.verdict==='HEALTHY') nbHealthy++; });
+    bj.trop.forEach(function(l){ exces[l.nom]=(exces[l.nom]||0)+1; });
+    return { cle:j.cle, kcal:Math.round(k), ratio:arrondi(r,2), repas:j.repas.length, etat: !j.repas.length?'vide' : r>1.1?'trop' : r<0.6?'peu' : 'ok' };
+  });
+  var serie=0; for(var i=liste.length-1;i>=0;i--){ if(liste[i].repas) serie++; else if(i===liste.length-1) continue; else break; }
+  var top=Object.keys(exces).map(function(n){return {nom:n,jours:exces[n]};}).sort(function(a,c){return c.jours-a.jours;});
+  return { jours:liste, cible:b.cible, moyenneKcal:joursSuivis?Math.round(sommeKcal/joursSuivis):0, joursSuivis:joursSuivis, joursObjectif:joursObjectif,
+    partHealthy:nbRepas?arrondi(nbHealthy/nbRepas,2):0, nbRepas:nbRepas, exces:top, serie:serie };
+}
+
 // ---------- 6. ENTRAÎNEMENT ----------
 // a) Cas généraux écrits par Claude : plats de référence (portion type, valeurs Ciqual moyennes).
 //    [nom, grammes, kcal100, prot100, gluc100, lip100, fibres100, sucresAjoutes100, ags100, sel100, nova, additifs]
@@ -315,7 +337,7 @@ function choisirExemples(corrections, indice){
 // ---------- 7. PROMPT DE L'IA SPÉCIALISÉE ----------
 function promptSysteme(){
   var codes=Object.keys(ADDITIFS).join(', ');
-  return 'Tu es IA Nutrition, un expert en nutrition et en technologie alimentaire (niveau diététicien, tables Ciqual de l\'ANSES). On te donne la photo d\'un repas.\n'+
+  return 'Tu es IA Nutrition, un expert en nutrition et en technologie alimentaire (niveau diététicien, tables Ciqual de l\'ANSES). On te donne la photo d\'un repas, ou seulement sa description écrite.\n'+
   'Réponds UNIQUEMENT par un objet JSON, sans texte autour :\n'+
   '{"estUnPlat":true,"plat":"nom court","confiance":70,"aliments":[{"nom":"Riz blanc cuit","grammes":150,"certain":true,"groupe":"feculent","nova":1,"additifs":[],"kcal100":130,"proteines100":2.7,"glucides100":28,"lipides100":0.3,"fibres100":0.4,"sucres100":0.1,"sucresAjoutes100":0,"ags100":0.1,"sel100":0}],"ingredientsCaches":["huile de cuisson"],"conseil":"une phrase"}\n'+
   'Règles d\'expert :\n'+
@@ -337,13 +359,19 @@ function promptUtilisateur(indice, corrections, rectif){
     (r?'Une première analyse de cette photo était fausse'+(rectif.avant?' (elle avait vu : '+String(rectif.avant).slice(0,300)+')':'')+'. L\'utilisateur, qui a le plat devant lui, indique ce que c\'est réellement : « '+r+' ». Ce qu\'il dit prime sur ce que tu crois voir : refais toute l\'analyse avec ces aliments (noms, quantités, transformation, additifs) et garde la photo seulement pour estimer les portions.\n':'')+
     'Analyse ce repas.';
 }
+// Repas décrit par écrit, sans photo : portions standards.
+function promptTexte(description, corrections){
+  var d=String(description||'').slice(0,500);
+  return exemplesTexte(choisirExemples(corrections, d))+
+    'Pas de photo : l\'utilisateur décrit son repas par écrit : « '+d+' ». Prends chaque aliment cité, avec ses quantités s\'il les donne, sinon une portion standard d\'adulte en France. Si la description ne parle pas de nourriture, réponds {"estUnPlat":false}.\nAnalyse ce repas.';
+}
 // Lit le JSON renvoyé par l'IA, même entouré de texte.
 function lireJSON(texte){
   var t=String(texte||''); var a=t.indexOf('{'), b=t.lastIndexOf('}');
   if(a<0||b<=a) return null; try{ return JSON.parse(t.slice(a,b+1)); }catch(e){ return null; }
 }
 
-return { ADDITIFS:ADDITIFS, NOVA:NOVA, CRENEAUX:CRENEAUX, ACTIVITES:ACTIVITES, reperes:reperes,
+return { objectifsMacros:objectifsMacros, bilanSemaine:bilanSemaine, promptTexte:promptTexte, ADDITIFS:ADDITIFS, NOVA:NOVA, CRENEAUX:CRENEAUX, ACTIVITES:ACTIVITES, reperes:reperes,
   besoins:besoins, creneauSelonHeure:creneauSelonHeure, normaliserScan:normaliserScan, normaliserAliment:normaliserAliment,
   totaux:totaux, scoreHealthy:scoreHealthy, portion:portion, analyserRepas:analyserRepas, bilanJour:bilanJour,
   infoAdditif:infoAdditif, promptSysteme:promptSysteme, promptUtilisateur:promptUtilisateur, lireJSON:lireJSON, novaParNom:novaParNom,
